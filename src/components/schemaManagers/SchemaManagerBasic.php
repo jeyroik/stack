@@ -1,18 +1,21 @@
 <?php
 namespace funcraft\stack\components\schemaManagers;
 
+use funcraft\stack\components\collectors\ResultCollectorByStackAlias;
 use funcraft\stack\components\SchemaManagerAbstract;
 use funcraft\stack\interfaces\stacks\IStack;
 
 /**
  * Class SchemaManagerBasic
  * @package funcraft\stack\components\schemaManagers
+ * @author Funcraft <what4me@yandex.ru>
  */
 class SchemaManagerBasic extends SchemaManagerAbstract
 {
     const CONFIG_FIELD__SCHEMA = 'schema';
     const CONFIG_FIELD__TYPE = 'type';
     const CONFIG_FIELD__KEY = 'key';
+    const CONFIG_FIELD__RESOLVER = 'resolver';
     const CONFIG_FIELD__CHILDREN = 'children';
     const CONFIG_FIELD__CLASS = 'class';
     const CONFIG_FIELD__PROCESSORS = 'processors';
@@ -22,12 +25,14 @@ class SchemaManagerBasic extends SchemaManagerAbstract
 
     const TYPE__CLASS = 'class';
     const TYPE__SCHEMA = 'schema';
+    const TYPE__RESOLVER = 'resolver';
 
     const SCHEMA_FIELD__STACKS = 'stacks';
     const SCHEMA_FIELD__PROCESSORS = 'processors';
     const SCHEMA_FIELD__FORMATTERS = 'formatters';
     const SCHEMA_FIELD__HANDLERS = 'handlers';
     const SCHEMA_FIELD__RECORDS = 'records';
+    const SCHEMA_FIELD__RESOLVERS = 'resolvers';
 
     const ENV_FIELD__SCHEMA_LOCK_FILE_PATH = 'FUNCRAFT_STACK_SCHEMA_LOCK_FILE_PATH';
 
@@ -36,23 +41,36 @@ class SchemaManagerBasic extends SchemaManagerAbstract
         self::SCHEMA_FIELD__FORMATTERS => [],
         self::SCHEMA_FIELD__HANDLERS => [],
         self::SCHEMA_FIELD__PROCESSORS => [],
-        self::SCHEMA_FIELD__RECORDS => []
+        self::SCHEMA_FIELD__RECORDS => [],
+        self::SCHEMA_FIELD__RESOLVERS => [
+            self::SCHEMA_FIELD__RESOLVERS => []// contain resolvers instances
+        ]
     ];
 
     /**
+     * @var ResultCollectorByStackAlias
+     */
+    protected $collector = null;
+
+    /**
+     * @param string $schemaName
      * @return bool
      */
-    public static function isSchemaExist(): bool
+    public static function isSchemaExist($schemaName): bool
     {
-        return is_file(self::getSchemaLockFilePath()) ? true : false;
+        return is_file(self::getSchemaLockFilePath($schemaName)) ? true : false;
     }
 
     /**
+     * @param string $schemaName
      * @return string
      */
-    protected static function getSchemaLockFilePath()
+    protected static function getSchemaLockFilePath($schemaName)
     {
-        return getenv(self::ENV_FIELD__SCHEMA_LOCK_FILE_PATH) ?: __DIR__ . '/../../schema.lock';
+        //fixme
+        return getenv(self::ENV_FIELD__SCHEMA_LOCK_FILE_PATH)
+            ? getenv(self::ENV_FIELD__SCHEMA_LOCK_FILE_PATH) . '/schema.' . $schemaName . '.lock'
+            : __DIR__ . '/../../schema.' . $schemaName . '.lock';
     }
 
     /**
@@ -64,15 +82,19 @@ class SchemaManagerBasic extends SchemaManagerAbstract
      */
     public function apply($message = '', $context = []): bool
     {
-        if (!self::isSchemaExist()) {
-            $this->compileSchema(self::getSchemaLockFilePath());
+        if (!self::isSchemaExist($this->name)) {
+            $this->compileSchema(self::getSchemaLockFilePath($this->name));
         } else {
-            $this->schema = json_decode(file_get_contents(self::getSchemaLockFilePath()), true);
+            $this->schema = json_decode(file_get_contents(self::getSchemaLockFilePath($this->name)), true);
         }
 
         $previousStackResult = null;
 
         foreach ($this->schema[static::SCHEMA_FIELD__STACKS] as $stackKey => $stackClass) {
+            if (!$this->resolveStack($stackKey, $previousStackResult)) {
+                continue;
+            }
+
             /**
              * @var IStack $stack
              */
@@ -84,9 +106,35 @@ class SchemaManagerBasic extends SchemaManagerAbstract
                 $this->schema[static::SCHEMA_FIELD__RECORDS][$stackKey]
             );
             $previousStackResult = $stack->run($message ?: 'init', $context);
+            if ($this->collector) {
+                $this->collector->addResult($stack, $stackKey);
+            }
         }
 
         return $previousStackResult ? true : false;
+    }
+
+    /**
+     * @param $stackKey
+     * @param $currentStackResult
+     *
+     * @return bool
+     */
+    protected function resolveStack($stackKey, $currentStackResult)
+    {
+        $schema = $this->schema[self::SCHEMA_FIELD__RESOLVERS];
+
+        if (isset($schema[$stackKey])) {
+            $resolver = $schema[self::SCHEMA_FIELD__RESOLVERS][$schema[$stackKey]];
+
+            if (!is_callable($resolver)) {
+                $resolver = new $resolver();
+            }
+
+            return $resolver($stackKey, $currentStackResult);
+        }
+
+        return true;
     }
 
     /**
@@ -168,6 +216,7 @@ class SchemaManagerBasic extends SchemaManagerAbstract
                 $this->schema[static::SCHEMA_FIELD__FORMATTERS][$childKey] = $childConfig[static::CONFIG_FIELD__FORMATTERS] ?? [];
                 $this->schema[static::SCHEMA_FIELD__HANDLERS][$childKey] = $childConfig[static::CONFIG_FIELD__HANDLERS] ?? [];
                 $this->schema[static::SCHEMA_FIELD__RECORDS][$childKey] = $childConfig[static::CONFIG_FIELD__RECORDS] ?? [];
+                $this->registerResolver($child);
             } elseif ($child[static::CONFIG_FIELD__TYPE] == static::TYPE__SCHEMA) {
                 $this->extractSchemaFromConfig($childConfig);
             } else {
@@ -186,5 +235,25 @@ class SchemaManagerBasic extends SchemaManagerAbstract
         }
 
         return true;
+    }
+
+    /**
+     * @param array $nodeConfig
+     * @return $this
+     */
+    protected function registerResolver($nodeConfig)
+    {
+        if (isset($nodeConfig[self::CONFIG_FIELD__RESOLVER])) {
+            $resolver = $nodeConfig[self::CONFIG_FIELD__RESOLVER];
+            $resolverPacked = json_encode($resolver);
+            $resolverHash = sha1($resolverPacked);
+            if (!isset($this->schema[self::SCHEMA_FIELD__RESOLVERS][self::SCHEMA_FIELD__RESOLVERS][$resolverHash])) {
+                $this->schema[self::SCHEMA_FIELD__RESOLVERS][self::SCHEMA_FIELD__RESOLVERS][$resolverHash] = $resolver;
+            }
+
+            $this->schema[self::SCHEMA_FIELD__RESOLVERS][$nodeConfig[self::CONFIG_FIELD__KEY]] = $resolverHash;
+        }
+
+        return $this;
     }
 }

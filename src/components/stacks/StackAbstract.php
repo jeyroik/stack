@@ -51,8 +51,14 @@ class StackAbstract extends Logger implements IStack
 
         parent::__construct($this->name, $handlers, $processors);
 
-        $recordClass = array_shift($records);
-        $this->record = new $recordClass($this);
+        if ($this->previousStackResult && ($this->previousStackResult instanceof IRecord)) {
+            $this->record = $this->previousStackResult;
+        } else {
+            $recordClass = array_shift($records);
+            $this->record = new $recordClass($this);
+            $previousStackResult && exit();
+        }
+
     }
 
     /**
@@ -61,6 +67,14 @@ class StackAbstract extends Logger implements IStack
     public function getPreviousStackResult()
     {
         return $this->previousStackResult;
+    }
+
+    /**
+     * @return mixed
+     */
+    public function getCurrentStackResult()
+    {
+        return $this->currentStackResult;
     }
 
     /**
@@ -73,7 +87,7 @@ class StackAbstract extends Logger implements IStack
     {
         $this->addRecord(0, $message, $context);
 
-        return $this->currentStackResult;
+        return $this->getCurrentStackResult();
     }
 
     /**

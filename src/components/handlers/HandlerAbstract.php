@@ -27,7 +27,9 @@ abstract class HandlerAbstract extends AbstractHandler implements IHandler
     {
         $this->currentStackResult = $currentStackResult;
 
-        $this->run();
+        $this->init()->run();
+
+        $this->currentStackResult = $this->record;
 
         return false;
     }
@@ -58,6 +60,14 @@ abstract class HandlerAbstract extends AbstractHandler implements IHandler
     {
         $this->record = $record;
 
+        return $this;
+    }
+
+    /**
+     * @return $this
+     */
+    protected function init()
+    {
         return $this;
     }
 

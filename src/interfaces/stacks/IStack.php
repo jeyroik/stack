@@ -38,4 +38,9 @@ interface IStack extends LoggerInterface
      * @return mixed
      */
     public function getPreviousStackResult();
+
+    /**
+     * @return mixed
+     */
+    public function getCurrentStackResult();
 }

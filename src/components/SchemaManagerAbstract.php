@@ -1,6 +1,7 @@
 <?php
 namespace funcraft\stack\components;
 
+use funcraft\stack\interfaces\IResultCollector;
 use funcraft\stack\interfaces\ISchemaManager;
 
 /**
@@ -14,14 +15,29 @@ abstract class SchemaManagerAbstract implements ISchemaManager
     protected $schema = [];
 
     /**
+     * @var IResultCollector
+     */
+    protected $collector = null;
+
+    /**
      * SchemaManagerAbstract constructor.
      *
      * @param string $name
      * @param array $config
+     * @param IResultCollector $resultCollector
      */
-    public function __construct(string $name, array $config)
+    public function __construct(string $name, array $config, IResultCollector $resultCollector = null)
     {
         $this->config = $config;
         $this->name = $name;
+        $this->collector = $resultCollector;
+    }
+
+    /**
+     * @return IResultCollector
+     */
+    public function getCollector()
+    {
+        return $this->collector;
     }
 }
