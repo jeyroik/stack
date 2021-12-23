@@ -1,0 +1,9 @@
+{
+    "name": "jeyroik/stack",
+    "description": "deprecated",
+    "autoload": {
+        "psr-4": {
+            "funcraft\\":"/"
+        }
+    }
+}
