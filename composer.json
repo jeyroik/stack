@@ -3,7 +3,7 @@
     "description": "deprecated",
     "autoload": {
         "psr-4": {
-            "funcraft\\":"/"
+            "funcraft\\":"src/"
         }
     }
 }
